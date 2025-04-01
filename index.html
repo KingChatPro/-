@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تحويل النص إلى فيديو</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 20px;
+        }
+        #board {
+            border: 1px solid #000;
+            height: 300px;
+            width: 100%;
+            position: relative;
+            overflow: hidden;
+            background-color: #f9f9f9;
+        }
+        textarea {
+            width: 80%;
+            height: 100px;
+        }
+        #output {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>تحويل النص إلى فيديو مرئي</h1>
+    <textarea id="textInput" placeholder="أدخل النص هنا"></textarea>
+    <br>
+    <label for="languageSelect">اختر اللغة:</label>
+    <select id="languageSelect">
+        <option value="ar-SA">العربية</option>
+        <option value="en-US">الإنجليزية</option>
+    </select>
+    <br>
+    <label for="voiceSelect">اختر نوع الصوت:</label>
+    <select id="voiceSelect"></select>
+    <br>
+    <button id="startButton">ابدأ</button>
+    <button id="saveButton">حفظ الفيديو</button>
+    <div id="board"></div>
+    <div id="output"></div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/0.4.1/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@latest"></script>
+    <script>
+        const synth = window.speechSynthesis;
+        let voices = [];
+        let frames = [];
+        let recording = false;
+
+        function populateVoiceList() {
+            voices = synth.getVoices();
+            const voiceSelect = document.getElementById('voiceSelect');
+            voices.forEach((voice) => {
+                const option = document.createElement('option');
+                option.value = voice.name;
+                option.textContent = `${voice.name} (${voice.lang})`;
+                voiceSelect.appendChild(option);
+            });
+        }
+
+        synth.onvoiceschanged = populateVoiceList;
+
+        document.getElementById('startButton').onclick = function() {
+            const text = document.getElementById('textInput').value;
+            const selectedVoice = document.getElementById('voiceSelect').value;
+            const speech = new SpeechSynthesisUtterance(text);
+            speech.voice = voices.find(voice => voice.name === selectedVoice);
+            speech.lang = document.getElementById('languageSelect').value;
+            
+            window.speechSynthesis.speak(speech);
+
+            // بدء التسجيل
+            recording = true;
+            frames = []; // إعادة تعيين الإطارات
+            const board = document.getElementById('board');
+            board.innerHTML = ''; // مسح المحتوى السابق
+            let index = 0;
+            const interval = setInterval(() => {
+                if (index < text.length) {
+                    board.innerHTML += text[index++];
+                    // التقاط الإطار
+                    html2canvas(board).then(canvas => {
+                        frames.push(canvas.toDataURL('image/png'));
+                    });
+                } else {
+                    clearInterval(interval);
+                    recording = false;
+                }
+            }, 100); // سرعة الكتابة
+        };
+
+        document.getElementById('saveButton').onclick = async function() {
+            if (recording) {
+                alert("لا يمكن حفظ الفيديو أثناء التسجيل.");
+                return;
+            }
+            const ffmpeg = FFmpeg.createFFmpeg({ log: true });
+            await ffmpeg.load();
+
+            // إضافة الإطارات إلى ffmpeg
+            for (let i = 0; i < frames.length; i++) {
+                const response = await fetch(frames[i]);
+                const blob = await response.blob();
+                ffmpeg.FS('writeFile', `frame${i}.png`, await fetch(frames[i]).then(res => res.blob()));
+            }
+
+            await ffmpeg.run('-framerate', '10', '-i', 'frame%d.png', 'output.mp4');
+
+            const data = ffmpeg.FS('readFile', 'output.mp4');
+            const videoBlob = new Blob([data.buffer], { type: 'video/mp4' });
+            const url = URL.createObjectURL(videoBlob);
+
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'video_output.mp4';
+            link.click();
+        };
+    </script>
+</body>
+</html>
